@@ -115,6 +115,17 @@ pytest
 
 The pytest suite is offline-only: it does not require real Lichess tokens, does not call the network, and does not require Stockfish to be installed.
 
+## Before Live Launch
+
+Run preflight checks before starting any live BOT process:
+
+```bash
+python scripts/preflight.py
+python scripts/preflight.py --live
+```
+
+Use `--live --bot2` to verify both BOT account tokens. Preflight does not start games, accept challenges, or create challenges; it only checks Stockfish, cooldown settings, and BOT account title via `/api/account` when requested.
+
 Run one live bot:
 
 ```bash
