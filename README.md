@@ -146,14 +146,32 @@ In `run_two_bots.py`, bot 2's dashboard startup is intentionally disabled so bot
 Start repeated challenges from bot 1 to bot 2:
 
 ```bash
-python challenge_loop.py --seconds 0.5
-python challenge_loop.py --seconds 0.25
-python challenge_loop.py --seconds 15
 python challenge_loop.py --seconds 30
 python challenge_loop.py --accept-only
 ```
 
+Live outbound `0.5+0`, `0.25+0`, and `15+0` challenge creation is unsupported for this BOT workflow. Use local dry-run mode for `1/2+0` and `1/4+0` testing.
+
 Add `--rated` only when both BOT accounts are allowed and configured for rated bot-vs-bot challenges.
+
+## Challenging Other Bots Safely
+
+Outbound challenges are disabled by default and only target a whitelist. Never challenge arbitrary bots. Only whitelist bots whose operators have explicitly agreed to play HyperBulletBot, and prefer or require that those bots follow HyperBulletBot before outbound challenge attempts. Keep the default cooldown at `300` seconds or higher. The default live outbound challenge is `30+0` because Lichess rejected `15+0` as BOT-incompatible.
+
+Example `.env`:
+
+```env
+BOT_CHALLENGE_TARGETS=ExampleBot1,ExampleBot2
+OUTBOUND_CHALLENGES_ENABLED=true
+OUTBOUND_CHALLENGE_COOLDOWN_SECONDS=300
+```
+
+Run:
+
+```bash
+python scripts/challenge_whitelist.py --once
+python scripts/challenge_whitelist.py --loop
+```
 
 ## Dashboard
 
@@ -198,4 +216,4 @@ If every candidate fails and the clock is critical, it plays the least-bad legal
 
 ## Notes
 
-Lichess may reject fractional challenge clocks if they are not currently supported by the public challenge endpoint. The code accepts and handles games with clock limits up to 30 seconds, so manually issued supported ultrabullet/bullet challenges still work.
+Local dry-run supports fractional ultrabullet/hyperbullet testing. Live challenge acceptance is intentionally limited to standard `30+0` bullet games by default; Lichess BOT accounts rejected `15+0` ultrabullet with `"Game incompatible with a BOT account"`.

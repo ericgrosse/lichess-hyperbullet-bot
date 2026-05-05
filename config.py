@@ -46,9 +46,16 @@ class Settings:
     enable_prepared_replies: bool
     prepare_reply_budget_ms: int
     allow_human_challenges: bool
-    allow_ultrabullet: bool
     min_clock_limit_seconds: int
     max_clock_limit_seconds: int
+    bot_challenge_targets: tuple[str, ...]
+    outbound_challenges_enabled: bool
+    outbound_challenge_seconds: int
+    outbound_challenge_increment: int
+    outbound_challenge_rated: bool
+    outbound_challenge_cooldown_seconds: int
+    outbound_challenge_max_per_session: int
+    outbound_challenge_color: str
 
     @property
     def dashboard_url(self) -> str:
@@ -77,10 +84,21 @@ def load_settings(env_file: Optional[str] = None) -> Settings:
         enable_prepared_replies=_bool("ENABLE_PREPARED_REPLIES", False),
         prepare_reply_budget_ms=_int("PREPARE_REPLY_BUDGET_MS", 10),
         allow_human_challenges=_bool("ALLOW_HUMAN_CHALLENGES", True),
-        allow_ultrabullet=_bool("ALLOW_ULTRABULLET", True),
         min_clock_limit_seconds=_int("MIN_CLOCK_LIMIT_SECONDS", 30),
         max_clock_limit_seconds=_int("MAX_CLOCK_LIMIT_SECONDS", 30),
+        bot_challenge_targets=parse_targets(os.getenv("BOT_CHALLENGE_TARGETS", "")),
+        outbound_challenges_enabled=_bool("OUTBOUND_CHALLENGES_ENABLED", False),
+        outbound_challenge_seconds=_int("OUTBOUND_CHALLENGE_SECONDS", 30),
+        outbound_challenge_increment=_int("OUTBOUND_CHALLENGE_INCREMENT", 0),
+        outbound_challenge_rated=_bool("OUTBOUND_CHALLENGE_RATED", False),
+        outbound_challenge_cooldown_seconds=_int("OUTBOUND_CHALLENGE_COOLDOWN_SECONDS", 300),
+        outbound_challenge_max_per_session=_int("OUTBOUND_CHALLENGE_MAX_PER_SESSION", 10),
+        outbound_challenge_color=os.getenv("OUTBOUND_CHALLENGE_COLOR", "random"),
     )
+
+
+def parse_targets(value: str) -> tuple[str, ...]:
+    return tuple(target.strip() for target in value.split(",") if target.strip())
 
 
 def require_bot_token(settings: Settings, bot_index: int = 1) -> None:

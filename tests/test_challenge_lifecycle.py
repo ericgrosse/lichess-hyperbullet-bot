@@ -3,7 +3,7 @@ import logging
 import pytest
 import requests
 
-from lichess_client import LichessClient
+from lichess_client import ChallengePolicy, LichessClient
 from run_bot import handle_challenge_event
 
 
@@ -54,26 +54,26 @@ def test_try_decline_http_400_returns_false(monkeypatch, caplog):
 
 def test_handle_challenge_event_unexpected_accept_exception_does_not_raise(caplog):
     class BadClient:
-        def try_accept_challenge(self, challenge_id):
+        def try_accept_challenge(self, challenge_id, challenge=None):
             raise RuntimeError("boom")
 
-        def try_decline_challenge(self, challenge_id, reason):
+        def try_decline_challenge(self, challenge_id, reason, challenge=None):
             raise AssertionError("should not decline")
 
     with caplog.at_level(logging.WARNING):
-        handle_challenge_event(BadClient(), good_challenge(), allow_human_challenges=True)
+        handle_challenge_event(BadClient(), good_challenge(), policy=ChallengePolicy(allow_human_challenges=True))
     assert "Unexpected error while accepting challenge abc123" in caplog.text
 
 
 def test_handle_challenge_event_unexpected_decline_exception_does_not_raise(caplog):
     class BadClient:
-        def try_accept_challenge(self, challenge_id):
+        def try_accept_challenge(self, challenge_id, challenge=None):
             raise AssertionError("should not accept")
 
-        def try_decline_challenge(self, challenge_id, reason):
+        def try_decline_challenge(self, challenge_id, reason, challenge=None):
             raise RuntimeError("boom")
 
     bad = good_challenge(timeControl={"type": "clock", "limit": 30, "increment": 1})
     with caplog.at_level(logging.WARNING):
-        handle_challenge_event(BadClient(), bad, allow_human_challenges=True)
+        handle_challenge_event(BadClient(), bad, policy=ChallengePolicy(allow_human_challenges=True))
     assert "Unexpected error while declining challenge abc123" in caplog.text

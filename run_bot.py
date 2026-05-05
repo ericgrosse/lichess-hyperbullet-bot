@@ -60,7 +60,7 @@ a{color:#8bd3ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(
 <script>
 async function tick(){const s=await fetch('/state.json').then(r=>r.json());const games=Object.values(s.games||{});
 document.getElementById('games').innerHTML=games.map(g=>`<section class="game"><h2><a href="${g.url}" target="_blank">${g.id}</a></h2><div class="grid">
-${['url','opponent','whiteClock','blackClock','clockMs','incrementMs','timeoutSide','lastMove','eval','selectedMove','thinkMs','source','candidatesSeen','preparedHit','blunder','result'].map(k=>`<div><div class="label">${k}</div><div class="value">${g[k]??''}</div></div>`).join('')}
+${['url','opponent','whiteClock','blackClock','clockMs','incrementMs','timeoutSide','lastMove','eval','selectedMove','thinkMs','source','candidatesSeen','preparedHit','hyper_fast_path_used','blunder','result'].map(k=>`<div><div class="label">${k}</div><div class="value">${g[k]??''}</div></div>`).join('')}
 </div></section>`).join('')||'<p>No active games.</p>'} setInterval(tick,1000); tick();
 </script></body></html>"""
 
@@ -195,7 +195,7 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                     "source": result.source,
                     "candidatesSeen": result.candidates_seen,
                     "preparedHit": result.prepared_hit,
-                    "hyperFastPath": result.hyper_fast_path_used,
+                    "hyper_fast_path_used": result.hyper_fast_path_used,
                     "blunder": result.blunder.reason,
                 }
             )
@@ -358,7 +358,7 @@ def run_dry_game(
                     "selectedMove": result.move.uci(),
                     "thinkMs": round(result.think_time_ms, 2),
                     "blunder": result.blunder.reason,
-                    "hyperFastPath": result.hyper_fast_path_used,
+                    "hyper_fast_path_used": result.hyper_fast_path_used,
                     "result": final_result if timeout_side or board.is_game_over() else "playing",
                 }
             )
@@ -400,11 +400,10 @@ def challenge_context(challenge: dict[str, Any], decision: Any) -> str:
 def handle_challenge_event(
     client: LichessClient,
     challenge: dict[str, Any],
-    allow_human_challenges: bool,
     log_dir: Path | None = None,
     policy: ChallengePolicy | None = None,
 ) -> None:
-    decision = decide_challenge(challenge, allow_human_challenges, policy)
+    decision = decide_challenge(challenge, policy=policy)
     challenge_id = challenge["id"]
     if log_dir is not None:
         append_log(
@@ -444,13 +443,12 @@ def run_live(bot_index: int = 1, dashboard: bool = True, quality_mode: str = "fa
     client.assert_bot_account()
     challenge_policy = ChallengePolicy(
         allow_human_challenges=settings.allow_human_challenges,
-        allow_ultrabullet=settings.allow_ultrabullet,
         min_clock_limit_seconds=settings.min_clock_limit_seconds,
         max_clock_limit_seconds=settings.max_clock_limit_seconds,
     )
     for event in client.stream_events():
         if event.get("type") == "challenge":
-            handle_challenge_event(client, event["challenge"], settings.allow_human_challenges, settings.log_dir, challenge_policy)
+            handle_challenge_event(client, event["challenge"], settings.log_dir, challenge_policy)
         elif event.get("type") == "gameStart":
             game_client = client.clone()
             threading.Thread(

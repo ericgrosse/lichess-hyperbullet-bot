@@ -18,9 +18,16 @@ def offline_settings(tmp_path):
         enable_prepared_replies=False,
         prepare_reply_budget_ms=0,
         allow_human_challenges=True,
-        allow_ultrabullet=True,
         min_clock_limit_seconds=15,
         max_clock_limit_seconds=30,
+        bot_challenge_targets=(),
+        outbound_challenges_enabled=False,
+        outbound_challenge_seconds=30,
+        outbound_challenge_increment=0,
+        outbound_challenge_rated=False,
+        outbound_challenge_cooldown_seconds=300,
+        outbound_challenge_max_per_session=10,
+        outbound_challenge_color="random",
     )
 
 

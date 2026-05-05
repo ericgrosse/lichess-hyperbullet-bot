@@ -23,7 +23,6 @@ class ChallengeDecision:
 @dataclass(frozen=True)
 class ChallengePolicy:
     allow_human_challenges: bool = True
-    allow_ultrabullet: bool = True
     min_clock_limit_seconds: int = 30
     max_clock_limit_seconds: int = 30
 
@@ -113,14 +112,15 @@ class LichessClient:
     def challenge(
         self,
         username: str,
-        seconds: float = 0.5,
+        seconds: float = 30,
+        increment: int = 0,
         rated: bool = False,
         color: str = "random",
     ) -> dict[str, Any]:
         data = {
             "rated": str(rated).lower(),
             "clock.limit": str(seconds),
-            "clock.increment": "0",
+            "clock.increment": str(increment),
             "variant": "standard",
             "color": color,
         }
