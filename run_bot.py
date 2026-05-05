@@ -60,7 +60,7 @@ a{color:#8bd3ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(
 <script>
 async function tick(){const s=await fetch('/state.json').then(r=>r.json());const games=Object.values(s.games||{});
 document.getElementById('games').innerHTML=games.map(g=>`<section class="game"><h2><a href="${g.url}" target="_blank">${g.id}</a></h2><div class="grid">
-${['whiteClock','blackClock','clockMs','incrementMs','timeoutSide','lastMove','eval','selectedMove','thinkMs','blunder','result'].map(k=>`<div><div class="label">${k}</div><div class="value">${g[k]??''}</div></div>`).join('')}
+${['url','opponent','whiteClock','blackClock','clockMs','incrementMs','timeoutSide','lastMove','eval','selectedMove','thinkMs','source','candidatesSeen','preparedHit','blunder','result'].map(k=>`<div><div class="label">${k}</div><div class="value">${g[k]??''}</div></div>`).join('')}
 </div></section>`).join('')||'<p>No active games.</p>'} setInterval(tick,1000); tick();
 </script></body></html>"""
 
@@ -91,6 +91,20 @@ def dashboard_game_update(game_id: str, values: dict[str, Any]) -> dict[str, Any
         return dict(game)
 
 
+def player_name(player: dict[str, Any]) -> str:
+    return player.get("name") or player.get("username") or player.get("id", "")
+
+
+def player_title(player: dict[str, Any]) -> str:
+    return player.get("title") or ""
+
+
+def live_termination(status: str | None) -> str:
+    if status in {"mate", "timeout", "resign", "draw", "stalemate", "outoftime", "aborted"}:
+        return status
+    return status or ""
+
+
 def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Path) -> None:
     LOG.info("Game started: https://lichess.org/%s", game_id)
     with EngineController(engine_path) as engine:
@@ -98,15 +112,31 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
         selector = MoveSelector(engine, settings.enable_prepared_replies, settings.prepare_reply_budget_ms)
         color = None
         base_seconds = 0.5
+        opponent_name = ""
+        opponent_title = ""
+        result_status = "playing"
         for event in client.stream_game(game_id):
             append_log(log_dir, game_id, {"type": "stream", "event": event})
             if event.get("type") == "gameFull":
-                white = event["white"].get("id", "").lower()
-                black = event["black"].get("id", "").lower()
+                white_player = event["white"]
+                black_player = event["black"]
+                white = white_player.get("id", "").lower()
+                black = black_player.get("id", "").lower()
                 color = chess.WHITE if white == client.username.lower() else chess.BLACK if black == client.username.lower() else None
+                opponent = black_player if color == chess.WHITE else white_player
+                opponent_name = player_name(opponent)
+                opponent_title = player_title(opponent)
                 clock = event.get("clock", {})
                 base_seconds = float(clock.get("initial", 500)) / 1000
-                dashboard_game_update(game_id, {"id": game_id, "url": f"https://lichess.org/{game_id}", "result": "playing"})
+                dashboard_game_update(
+                    game_id,
+                    {
+                        "id": game_id,
+                        "url": f"https://lichess.org/{game_id}",
+                        "opponent": f"{opponent_title + ' ' if opponent_title else ''}{opponent_name}",
+                        "result": "playing",
+                    },
+                )
                 state = event.get("state", {})
             elif event.get("type") == "gameState":
                 state = event
@@ -114,7 +144,21 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                 continue
 
             if state.get("status") not in {None, "started"}:
-                dashboard_game_update(game_id, {"result": state.get("status")})
+                result_status = state.get("status")
+                dashboard_game_update(game_id, {"result": result_status})
+                append_log(
+                    log_dir,
+                    game_id,
+                    {
+                        "type": "game_end",
+                        "game_id": game_id,
+                        "url": f"https://lichess.org/{game_id}",
+                        "result": result_status,
+                        "termination": live_termination(result_status),
+                        "opponent_username": opponent_name,
+                        "opponent_title": opponent_title,
+                    },
+                )
                 break
             if color is None:
                 continue
@@ -128,6 +172,7 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                 {
                     "id": game_id,
                     "url": f"https://lichess.org/{game_id}",
+                    "opponent": f"{opponent_title + ' ' if opponent_title else ''}{opponent_name}",
                     "whiteClock": white_ms,
                     "blackClock": black_ms,
                     "lastMove": moves.split()[-1] if moves else "",
@@ -136,6 +181,8 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
             if not is_my_turn or board.is_game_over():
                 continue
             remaining = white_ms if color == chess.WHITE else black_ms
+            fen_before = board.fen()
+            ply = board.ply() + 1
             result = selector.choose_move(board, SelectionContext(remaining, base_seconds, 0))
             client.make_move(game_id, result.move.uci())
             dashboard_game_update(
@@ -144,6 +191,9 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                     "eval": result.eval_cp,
                     "selectedMove": result.move.uci(),
                     "thinkMs": round(result.think_time_ms, 2),
+                    "source": result.source,
+                    "candidatesSeen": result.candidates_seen,
+                    "preparedHit": result.prepared_hit,
                     "blunder": result.blunder.reason,
                 }
             )
@@ -152,7 +202,23 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                 game_id,
                 {
                     "type": "move",
+                    "game_id": game_id,
+                    "url": f"https://lichess.org/{game_id}",
+                    "opponent_username": opponent_name,
+                    "opponent_title": opponent_title,
+                    "ply": ply,
+                    "fen_before": fen_before,
                     "move": result.move.uci(),
+                    "clock_before_ms": remaining,
+                    "clock_after_ms": None,
+                    "think_ms": result.think_time_ms,
+                    "eval_cp": result.eval_cp,
+                    "source": result.source,
+                    "blunder_reason": result.blunder.reason,
+                    "candidates_seen": result.candidates_seen,
+                    "prepared_hit": result.prepared_hit,
+                    "result": result_status,
+                    "termination": live_termination(result_status),
                     "selection": {
                         "move": result.move.uci(),
                         "think_time_ms": result.think_time_ms,
