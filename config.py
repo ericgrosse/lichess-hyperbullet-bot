@@ -19,6 +19,10 @@ def _bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _bool_was_set(name: str) -> bool:
+    return os.getenv(name) is not None
+
+
 def _int(name: str, default: int) -> int:
     value = os.getenv(name)
     if value is None or value.strip() == "":
@@ -44,6 +48,7 @@ class Settings:
     challenge_cooldown_seconds: int
     default_rated: bool
     enable_prepared_replies: bool
+    enable_prepared_replies_was_set: bool
     prepare_reply_budget_ms: int
     allow_human_challenges: bool
     min_clock_limit_seconds: int
@@ -56,6 +61,14 @@ class Settings:
     outbound_challenge_cooldown_seconds: int
     outbound_challenge_max_per_session: int
     outbound_challenge_color: str
+    max_concurrent_games: int
+    enable_auto_resign: bool
+    serial_match_mode: bool
+    match_lock_path: Path
+    match_lock_stale_seconds: int
+    challenge_placeholder_stale_seconds: int
+    pending_challenge_timeout_seconds: int
+    next_match_cooldown_seconds: int
 
     @property
     def dashboard_url(self) -> str:
@@ -82,6 +95,7 @@ def load_settings(env_file: Optional[str] = None) -> Settings:
         challenge_cooldown_seconds=_int("CHALLENGE_COOLDOWN_SECONDS", 20),
         default_rated=_bool("DEFAULT_RATED", False),
         enable_prepared_replies=_bool("ENABLE_PREPARED_REPLIES", False),
+        enable_prepared_replies_was_set=_bool_was_set("ENABLE_PREPARED_REPLIES"),
         prepare_reply_budget_ms=_int("PREPARE_REPLY_BUDGET_MS", 10),
         allow_human_challenges=_bool("ALLOW_HUMAN_CHALLENGES", True),
         min_clock_limit_seconds=_int("MIN_CLOCK_LIMIT_SECONDS", 30),
@@ -94,6 +108,17 @@ def load_settings(env_file: Optional[str] = None) -> Settings:
         outbound_challenge_cooldown_seconds=_int("OUTBOUND_CHALLENGE_COOLDOWN_SECONDS", 300),
         outbound_challenge_max_per_session=_int("OUTBOUND_CHALLENGE_MAX_PER_SESSION", 10),
         outbound_challenge_color=os.getenv("OUTBOUND_CHALLENGE_COLOR", "random"),
+        max_concurrent_games=_int("MAX_CONCURRENT_GAMES", 1),
+        enable_auto_resign=_bool("ENABLE_AUTO_RESIGN", False),
+        serial_match_mode=_bool("SERIAL_MATCH_MODE", True),
+        match_lock_path=(PROJECT_ROOT / os.getenv("MATCH_LOCK_PATH", "runtime/active_match.lock")).resolve(),
+        match_lock_stale_seconds=_int("MATCH_LOCK_STALE_SECONDS", 120),
+        pending_challenge_timeout_seconds=_int("PENDING_CHALLENGE_TIMEOUT_SECONDS", 60),
+        challenge_placeholder_stale_seconds=_int(
+            "CHALLENGE_PLACEHOLDER_STALE_SECONDS",
+            _int("PENDING_CHALLENGE_TIMEOUT_SECONDS", _int("OUTBOUND_CHALLENGE_LOCK_TTL_SECONDS", 60)),
+        ),
+        next_match_cooldown_seconds=_int("NEXT_MATCH_COOLDOWN_SECONDS", 1),
     )
 
 

@@ -5,6 +5,7 @@ import requests
 
 from lichess_client import ChallengePolicy, LichessClient
 from run_bot import handle_challenge_event
+from match_lock import MatchLock
 
 
 def response_error(status_code):
@@ -77,3 +78,26 @@ def test_handle_challenge_event_unexpected_decline_exception_does_not_raise(capl
     with caplog.at_level(logging.WARNING):
         handle_challenge_event(BadClient(), bad, policy=ChallengePolicy(allow_human_challenges=True))
     assert "Unexpected error while declining challenge abc123" in caplog.text
+
+
+def test_handle_challenge_event_declines_when_match_lock_active(tmp_path, caplog):
+    class BusyClient:
+        username = "BotA"
+
+        def __init__(self):
+            self.declined = []
+
+        def try_accept_challenge(self, challenge_id, challenge=None):
+            raise AssertionError("should not accept")
+
+        def try_decline_challenge(self, challenge_id, reason, challenge=None):
+            self.declined.append((challenge_id, reason))
+            return True
+
+    lock = MatchLock(tmp_path / "active_match.lock", stale_seconds=120)
+    assert lock.acquire("active-game", "BotA")
+    client = BusyClient()
+    with caplog.at_level(logging.INFO):
+        handle_challenge_event(client, good_challenge(), policy=ChallengePolicy(allow_human_challenges=True), match_lock=lock, bot_username="BotA")
+    assert client.declined == [("abc123", "later")]
+    assert "match lock active" in caplog.text

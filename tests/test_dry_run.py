@@ -16,6 +16,7 @@ def offline_settings(tmp_path):
         challenge_cooldown_seconds=20,
         default_rated=False,
         enable_prepared_replies=False,
+        enable_prepared_replies_was_set=True,
         prepare_reply_budget_ms=0,
         allow_human_challenges=True,
         min_clock_limit_seconds=15,
@@ -28,6 +29,14 @@ def offline_settings(tmp_path):
         outbound_challenge_cooldown_seconds=300,
         outbound_challenge_max_per_session=10,
         outbound_challenge_color="random",
+        max_concurrent_games=1,
+        enable_auto_resign=False,
+        serial_match_mode=True,
+        match_lock_path=tmp_path / "runtime" / "active_match.lock",
+        match_lock_stale_seconds=120,
+        pending_challenge_timeout_seconds=60,
+        challenge_placeholder_stale_seconds=60,
+        next_match_cooldown_seconds=5,
     )
 
 

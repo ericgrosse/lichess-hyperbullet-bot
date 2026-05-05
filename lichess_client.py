@@ -56,6 +56,14 @@ class LichessClient:
     def account(self) -> dict[str, Any]:
         return self._request("GET", "/api/account").json()
 
+    def account_playing(self) -> dict[str, Any]:
+        return self._request("GET", "/api/account/playing").json()
+
+    def game_export(self, game_id: str) -> dict[str, Any]:
+        headers = {"Accept": "application/json"}
+        params = {"moves": "true", "clocks": "true", "pgnInJson": "true"}
+        return self._request("GET", f"/game/export/{game_id}", headers=headers, params=params).json()
+
     def assert_bot_account(self) -> None:
         account = self.account()
         if account.get("title") != "BOT":
