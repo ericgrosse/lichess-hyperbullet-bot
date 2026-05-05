@@ -7,7 +7,8 @@ Never run this with a normal Lichess user account. The live runner verifies the 
 ## Compliance Guardrails
 
 - The runner calls `/api/account` before live play and refuses to run unless the token belongs to a Lichess account with title `BOT`.
-- Incoming challenges are accepted only from other `BOT` accounts.
+- Incoming challenges can be BOT-only or allow humans depending on `ALLOW_HUMAN_CHALLENGES`.
+- Set `ALLOW_HUMAN_CHALLENGES=true` to accept standard `<=30s +0` human challenges for testing; set it to `false` for BOT-only challenges.
 - Accepted games must be standard chess, bullet/ultrabullet, clock-based, `<= 30` seconds, and increment `0`.
 - The project does not implement human-play assistance, browser automation, lobby seeks, pools, tournaments, or simuls.
 - Challenge loops use direct bot-vs-bot challenges only, with a configurable cooldown to avoid spam.

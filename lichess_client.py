@@ -145,24 +145,26 @@ class LichessClient:
             time.sleep(0.05 - elapsed)
 
 
-def decide_challenge(challenge: dict[str, Any]) -> ChallengeDecision:
+def decide_challenge(challenge: dict[str, Any], allow_human_challenges: bool = True) -> ChallengeDecision:
     variant = challenge.get("variant", {}).get("key")
     speed = challenge.get("speed")
     perf = challenge.get("perf", {}).get("key")
     clock = challenge.get("timeControl", {})
     challenger = challenge.get("challenger", {})
-    if challenger.get("title") != "BOT":
+    if not allow_human_challenges and challenger.get("title") != "BOT":
         return ChallengeDecision(False, "botOnly")
     if variant != "standard":
-        return ChallengeDecision(False, "variant")
+        return ChallengeDecision(False, "non-standard")
     if speed not in {"bullet", "ultraBullet"} and perf not in {"bullet", "ultraBullet"}:
-        return ChallengeDecision(False, "timeControl")
+        return ChallengeDecision(False, "time")
     if clock.get("type") != "clock":
-        return ChallengeDecision(False, "timeControl")
+        return ChallengeDecision(False, "correspondence")
     raw_limit = clock.get("limit")
     raw_increment = clock.get("increment")
     limit = float(raw_limit) if raw_limit is not None else 999
     increment = float(raw_increment) if raw_increment is not None else 999
-    if limit > 30 or increment != 0:
-        return ChallengeDecision(False, "timeControl")
+    if increment != 0:
+        return ChallengeDecision(False, "increment")
+    if limit > 30:
+        return ChallengeDecision(False, "time")
     return ChallengeDecision(True, "ok")

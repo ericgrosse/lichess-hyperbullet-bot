@@ -17,8 +17,12 @@ def test_accepts_bot_standard_clock_under_30s_zero_increment():
     assert decide_challenge(challenge()).accept
 
 
-def test_rejects_non_bot_challengers():
-    assert not decide_challenge(challenge(challenger={"title": None})).accept
+def test_accepts_human_challengers_when_allowed():
+    assert decide_challenge(challenge(challenger={"title": None}), allow_human_challenges=True).accept
+
+
+def test_rejects_non_bot_challengers_when_disabled():
+    assert not decide_challenge(challenge(challenger={"title": None}), allow_human_challenges=False).accept
 
 
 def test_rejects_non_standard_variants():

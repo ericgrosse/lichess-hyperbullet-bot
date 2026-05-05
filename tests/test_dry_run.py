@@ -17,6 +17,7 @@ def offline_settings(tmp_path):
         default_rated=False,
         enable_prepared_replies=False,
         prepare_reply_budget_ms=0,
+        allow_human_challenges=True,
     )
 
 

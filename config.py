@@ -45,6 +45,7 @@ class Settings:
     default_rated: bool
     enable_prepared_replies: bool
     prepare_reply_budget_ms: int
+    allow_human_challenges: bool
 
     @property
     def dashboard_url(self) -> str:
@@ -72,6 +73,7 @@ def load_settings(env_file: Optional[str] = None) -> Settings:
         default_rated=_bool("DEFAULT_RATED", False),
         enable_prepared_replies=_bool("ENABLE_PREPARED_REPLIES", False),
         prepare_reply_budget_ms=_int("PREPARE_REPLY_BUDGET_MS", 10),
+        allow_human_challenges=_bool("ALLOW_HUMAN_CHALLENGES", False),
     )
 
 

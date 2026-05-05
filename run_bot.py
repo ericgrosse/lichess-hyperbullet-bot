@@ -328,10 +328,11 @@ def run_live(bot_index: int = 1, dashboard: bool = True) -> None:
     for event in client.stream_events():
         if event.get("type") == "challenge":
             challenge = event["challenge"]
-            decision = decide_challenge(challenge)
+            decision = decide_challenge(challenge, settings.allow_human_challenges)
             if decision.accept:
                 client.accept_challenge(challenge["id"])
             else:
+                LOG.info("Declining challenge: reason=%s", decision.reason)
                 client.decline_challenge(challenge["id"], decision.reason)
         elif event.get("type") == "gameStart":
             game_client = client.clone()
