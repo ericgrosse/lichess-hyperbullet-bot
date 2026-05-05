@@ -15,7 +15,7 @@ import chess.pgn
 
 from config import load_settings, require_bot_token, validate_stockfish_path
 from engine_controller import EngineController
-from lichess_client import LichessClient, decide_challenge
+from lichess_client import ChallengePolicy, LichessClient, decide_challenge
 from move_selector import MoveSelector, SelectionContext
 
 
@@ -105,7 +105,7 @@ def live_termination(status: str | None) -> str:
     return status or ""
 
 
-def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Path) -> None:
+def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Path, quality_mode: str = "fast") -> None:
     LOG.info("Game started: https://lichess.org/%s", game_id)
     with EngineController(engine_path) as engine:
         settings = load_settings()
@@ -183,7 +183,8 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
             remaining = white_ms if color == chess.WHITE else black_ms
             fen_before = board.fen()
             ply = board.ply() + 1
-            result = selector.choose_move(board, SelectionContext(remaining, base_seconds, 0))
+            last_opponent_move = moves.split()[-1] if moves else None
+            result = selector.choose_move(board, SelectionContext(remaining, base_seconds, 0, last_opponent_move=last_opponent_move, quality_mode=quality_mode))
             client.make_move(game_id, result.move.uci())
             dashboard_game_update(
                 game_id,
@@ -194,6 +195,7 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                     "source": result.source,
                     "candidatesSeen": result.candidates_seen,
                     "preparedHit": result.prepared_hit,
+                    "hyperFastPath": result.hyper_fast_path_used,
                     "blunder": result.blunder.reason,
                 }
             )
@@ -217,6 +219,7 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                     "blunder_reason": result.blunder.reason,
                     "candidates_seen": result.candidates_seen,
                     "prepared_hit": result.prepared_hit,
+                    "hyper_fast_path_used": result.hyper_fast_path_used,
                     "result": result_status,
                     "termination": live_termination(result_status),
                     "selection": {
@@ -227,6 +230,7 @@ def run_game(client: LichessClient, game_id: str, engine_path: Path, log_dir: Pa
                         "blunder": result.blunder.__dict__,
                         "candidates_seen": result.candidates_seen,
                         "prepared_hit": result.prepared_hit,
+                        "hyper_fast_path_used": result.hyper_fast_path_used,
                     },
                 },
             )
@@ -307,6 +311,7 @@ def run_dry_game(
                     remaining,
                     base_seconds,
                     increment_ms / 1000,
+                    last_opponent_move=board.peek().uci() if board.move_stack else None,
                     recent_position_keys=recent_positions,
                     quality_mode=quality_mode,
                 ),
@@ -334,7 +339,7 @@ def run_dry_game(
                 f"clk_before {remaining}ms; clk_after {after_clock}ms; "
                 f"think {round(result.think_time_ms, 2)}ms; wall {round(wall_elapsed_ms, 2)}ms; "
                 f"charged {charged_ms}ms; budget {think_budget_ms}ms; source {result.source}; "
-                f"eval {result.eval_cp}; blunder {result.blunder.reason}"
+                f"eval {result.eval_cp}; blunder {result.blunder.reason}; hyper_fast_path {result.hyper_fast_path_used}"
             )
             recent_positions.add(MoveSelector.position_key(board))
             if not timeout_side and board.is_game_over(claim_draw=True):
@@ -353,6 +358,7 @@ def run_dry_game(
                     "selectedMove": result.move.uci(),
                     "thinkMs": round(result.think_time_ms, 2),
                     "blunder": result.blunder.reason,
+                    "hyperFastPath": result.hyper_fast_path_used,
                     "result": final_result if timeout_side or board.is_game_over() else "playing",
                 }
             )
@@ -380,7 +386,52 @@ def run_dry_game(
         engine.close()
 
 
-def run_live(bot_index: int = 1, dashboard: bool = True) -> None:
+def challenge_context(challenge: dict[str, Any], decision: Any) -> str:
+    challenger = challenge.get("challenger", {})
+    clock = challenge.get("timeControl", {})
+    variant = challenge.get("variant", {}).get("key")
+    rated = "rated" if challenge.get("rated") else "casual"
+    limit = clock.get("limit")
+    increment = clock.get("increment")
+    username = challenger.get("name") or challenger.get("username") or challenger.get("id", "")
+    return f"id={challenge.get('id')} challenger={username} rated={rated} variant={variant} tc={limit}+{increment} decision={decision.reason}"
+
+
+def handle_challenge_event(
+    client: LichessClient,
+    challenge: dict[str, Any],
+    allow_human_challenges: bool,
+    log_dir: Path | None = None,
+    policy: ChallengePolicy | None = None,
+) -> None:
+    decision = decide_challenge(challenge, allow_human_challenges, policy)
+    challenge_id = challenge["id"]
+    if log_dir is not None:
+        append_log(
+            log_dir,
+            f"challenge-{challenge_id}",
+            {
+                "type": "challenge_decision",
+                "challenge_id": challenge_id,
+                "decision": decision.__dict__,
+                "raw_challenge": challenge,
+            },
+        )
+    if decision.accept:
+        LOG.info("Accepting challenge: %s", challenge_context(challenge, decision))
+        try:
+            client.try_accept_challenge(challenge_id, challenge)
+        except Exception as exc:
+            LOG.warning("Unexpected error while accepting challenge %s: %s", challenge_id, exc)
+    else:
+        LOG.info("Declining challenge: %s", challenge_context(challenge, decision))
+        try:
+            client.try_decline_challenge(challenge_id, decision.reason, challenge)
+        except Exception as exc:
+            LOG.warning("Unexpected error while declining challenge %s: %s", challenge_id, exc)
+
+
+def run_live(bot_index: int = 1, dashboard: bool = True, quality_mode: str = "fast") -> None:
     settings = load_settings()
     require_bot_token(settings, bot_index)
     validate_stockfish_path(settings, required=True)
@@ -391,18 +442,22 @@ def run_live(bot_index: int = 1, dashboard: bool = True) -> None:
         LOG.info("Dashboard: %s", settings.dashboard_url)
     client = LichessClient(bot.token, bot.username)
     client.assert_bot_account()
+    challenge_policy = ChallengePolicy(
+        allow_human_challenges=settings.allow_human_challenges,
+        allow_ultrabullet=settings.allow_ultrabullet,
+        min_clock_limit_seconds=settings.min_clock_limit_seconds,
+        max_clock_limit_seconds=settings.max_clock_limit_seconds,
+    )
     for event in client.stream_events():
         if event.get("type") == "challenge":
-            challenge = event["challenge"]
-            decision = decide_challenge(challenge, settings.allow_human_challenges)
-            if decision.accept:
-                client.accept_challenge(challenge["id"])
-            else:
-                LOG.info("Declining challenge: reason=%s", decision.reason)
-                client.decline_challenge(challenge["id"], decision.reason)
+            handle_challenge_event(client, event["challenge"], settings.allow_human_challenges, settings.log_dir, challenge_policy)
         elif event.get("type") == "gameStart":
             game_client = client.clone()
-            threading.Thread(target=run_game, args=(game_client, event["game"]["id"], settings.stockfish_path, settings.log_dir), daemon=True).start()
+            threading.Thread(
+                target=run_game,
+                args=(game_client, event["game"]["id"], settings.stockfish_path, settings.log_dir, quality_mode),
+                daemon=True,
+            ).start()
 
 
 def main() -> None:
@@ -416,7 +471,7 @@ def main() -> None:
     parser.add_argument("--bot1-name", default="OfflineBot1", help="Dry-run PGN/display name for White.")
     parser.add_argument("--bot2-name", default="OfflineBot2", help="Dry-run PGN/display name for Black.")
     parser.add_argument("--random-seed", type=int, default=None, help="Optional dry-run random seed.")
-    parser.add_argument("--quality-mode", choices=["fast", "sample"], default="fast", help="Dry-run quality mode.")
+    parser.add_argument("--quality-mode", choices=["fast", "sample", "hyper"], default="fast", help="Dry-run quality mode.")
     args = parser.parse_args()
     if args.dry_run:
         run_dry_game(
@@ -430,7 +485,7 @@ def main() -> None:
             args.quality_mode,
         )
         return
-    run_live(args.bot)
+    run_live(args.bot, quality_mode=args.quality_mode)
 
 
 if __name__ == "__main__":

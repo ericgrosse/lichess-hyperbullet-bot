@@ -17,6 +17,38 @@ def test_accepts_bot_standard_clock_under_30s_zero_increment():
     assert decide_challenge(challenge()).accept
 
 
+def test_rejects_15_plus_0_by_default():
+    assert not decide_challenge(challenge(timeControl={"type": "clock", "limit": 15, "increment": 0})).accept
+
+
+def test_accepts_30_plus_0_by_default():
+    assert decide_challenge(challenge(timeControl={"type": "clock", "limit": 30, "increment": 0})).accept
+
+
+def test_rejects_10_plus_0_by_default():
+    assert not decide_challenge(challenge(timeControl={"type": "clock", "limit": 10, "increment": 0})).accept
+
+
+def test_rejects_15_plus_0_ultrabullet():
+    assert not decide_challenge(
+        challenge(
+            speed="ultraBullet",
+            perf={"key": "ultrabullet"},
+            timeControl={"type": "clock", "limit": 15, "increment": 0},
+        )
+    ).accept
+
+
+def test_accepts_30_plus_0_bullet():
+    assert decide_challenge(
+        challenge(
+            speed="bullet",
+            perf={"key": "bullet"},
+            timeControl={"type": "clock", "limit": 30, "increment": 0},
+        )
+    ).accept
+
+
 def test_accepts_human_challengers_when_allowed():
     assert decide_challenge(challenge(challenger={"title": None}), allow_human_challenges=True).accept
 

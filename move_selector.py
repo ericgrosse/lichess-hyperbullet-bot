@@ -40,6 +40,7 @@ class SelectionResult:
     blunder: BlunderResult
     candidates_seen: int
     prepared_hit: bool = False
+    hyper_fast_path_used: bool = False
 
 
 @dataclass
@@ -87,6 +88,21 @@ class MoveSelector:
     def choose_move(self, board: chess.Board, ctx: SelectionContext) -> SelectionResult:
         start = time.perf_counter()
         think_ms = self._think_budget_ms(ctx)
+        if ctx.quality_mode == "hyper":
+            prepared = self._hyper_prepared_move(board, ctx, start)
+            if prepared:
+                return prepared
+            fast_move = self._hyper_fast_path_move(board, ctx)
+            if fast_move:
+                check = self.blunder_checker.check(board, fast_move, 0)
+                if check.ok:
+                    self.emergency.put(board, fast_move)
+                    return SelectionResult(fast_move, self._elapsed(start), 0, "hyper-fast-path", check, 1, False, True)
+            if ctx.remaining_ms <= 50:
+                move = self._fastest_safe_fallback(board, ctx)
+                check = self.blunder_checker.check(board, move, 0)
+                return SelectionResult(move, self._elapsed(start), 0, "hyper-emergency", check, 1, False, True)
+
         if ctx.remaining_ms <= 20:
             cached = self.emergency.get(board)
             if cached and cached in board.legal_moves:
@@ -117,7 +133,9 @@ class MoveSelector:
             engine_result = self.engine.analyse_candidates(board, think_ms, multipv=multipv)
             candidates = self._merge_candidates(board, engine_result.candidates)
         candidates = self._anti_repetition_order(board, candidates, ctx)
-        verify_ms = self._verify_ms(ctx.remaining_ms)
+        if ctx.quality_mode == "hyper":
+            candidates = candidates[:4]
+        verify_ms = self._verify_ms_for(ctx)
         rejected: list[tuple[CandidateMove, BlunderResult]] = []
         safe_repeat: Optional[tuple[CandidateMove, BlunderResult]] = None
         for candidate in candidates:
@@ -142,6 +160,18 @@ class MoveSelector:
         return SelectionResult(least_bad.move, self._elapsed(start), least_bad.score_cp, "least-bad", check, len(candidates))
 
     def _think_budget_ms(self, ctx: SelectionContext) -> int:
+        if ctx.quality_mode == "hyper":
+            if ctx.remaining_ms <= 20:
+                return 0
+            if ctx.remaining_ms <= 50:
+                return 1
+            if ctx.remaining_ms <= 100:
+                return 2
+            if ctx.remaining_ms <= 250:
+                return 3
+            if ctx.remaining_ms <= 500:
+                return 5
+            return 8
         if ctx.quality_mode == "sample":
             if ctx.remaining_ms <= 20:
                 return 0
@@ -178,6 +208,8 @@ class MoveSelector:
 
     @staticmethod
     def _multipv_for(ctx: SelectionContext, think_ms: int) -> int:
+        if ctx.quality_mode == "hyper":
+            return 1 if think_ms <= 8 else 2
         if think_ms <= 10:
             return 1
         if think_ms <= 25:
@@ -193,6 +225,12 @@ class MoveSelector:
         if remaining_ms < 5000:
             return 10
         return 35
+
+    @staticmethod
+    def _verify_ms_for(ctx: SelectionContext) -> int:
+        if ctx.quality_mode == "hyper":
+            return 0 if ctx.remaining_ms <= 50 else 1
+        return MoveSelector._verify_ms(ctx.remaining_ms)
 
     @staticmethod
     def _elapsed(start: float) -> float:
@@ -267,6 +305,65 @@ class MoveSelector:
             if check.ok:
                 return move
         return next(iter(board.legal_moves))
+
+    def _hyper_prepared_move(self, board: chess.Board, ctx: SelectionContext, start: float) -> Optional[SelectionResult]:
+        if not self._last_opponent_move_forcing(board, ctx):
+            return None
+        cached = self.prepared.get(board) or self.emergency.get(board)
+        if cached and cached in board.legal_moves:
+            check = self.blunder_checker.check(board, cached, 0)
+            if check.ok:
+                return SelectionResult(cached, self._elapsed(start), 0, "hyper-prepared", check, 1, True, True)
+        return None
+
+    def _hyper_fast_path_move(self, board: chess.Board, ctx: SelectionContext) -> Optional[chess.Move]:
+        mate = self._mate_in_one(board)
+        if mate:
+            return mate
+        recapture = self._recapture_move(board, ctx)
+        if recapture:
+            return recapture
+        for move in sorted(board.legal_moves, key=lambda m: self._fallback_score(board, m, ctx), reverse=True):
+            if board.gives_check(move):
+                return move
+        return None
+
+    @staticmethod
+    def _mate_in_one(board: chess.Board) -> Optional[chess.Move]:
+        for move in board.legal_moves:
+            probe = board.copy(stack=False)
+            probe.push(move)
+            if probe.is_checkmate():
+                return move
+        return None
+
+    def _recapture_move(self, board: chess.Board, ctx: SelectionContext) -> Optional[chess.Move]:
+        if not ctx.last_opponent_move:
+            return None
+        try:
+            last = chess.Move.from_uci(ctx.last_opponent_move)
+        except ValueError:
+            return None
+        captures = [move for move in board.legal_moves if move.to_square == last.to_square and board.is_capture(move)]
+        safe = []
+        for move in captures:
+            check = self.blunder_checker.check(board, move, 0)
+            if check.ok:
+                safe.append(move)
+        if not safe:
+            return None
+        return max(safe, key=lambda move: self._fallback_score(board, move, ctx))
+
+    @staticmethod
+    def _last_opponent_move_forcing(board: chess.Board, ctx: SelectionContext) -> bool:
+        if not ctx.last_opponent_move or not board.move_stack:
+            return False
+        last = board.peek()
+        if last.uci() != ctx.last_opponent_move:
+            return False
+        probe = board.copy()
+        probe.pop()
+        return probe.is_capture(last) or probe.gives_check(last) or bool(last.promotion)
 
     def _fallback_score(self, board: chess.Board, move: chess.Move, ctx: Optional[SelectionContext] = None) -> int:
         probe = board.copy(stack=False)

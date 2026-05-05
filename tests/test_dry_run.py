@@ -18,6 +18,9 @@ def offline_settings(tmp_path):
         enable_prepared_replies=False,
         prepare_reply_budget_ms=0,
         allow_human_challenges=True,
+        allow_ultrabullet=True,
+        min_clock_limit_seconds=15,
+        max_clock_limit_seconds=30,
     )
 
 
@@ -82,3 +85,11 @@ def test_dry_run_pgn_contains_plycount_and_termination(monkeypatch, tmp_path):
     assert "charged" in text
     assert "source" in text
     assert "blunder" in text
+
+
+def test_dry_run_hyper_pgn_contains_fast_path_flag(monkeypatch, tmp_path):
+    patch_offline_dry_run(monkeypatch, tmp_path)
+    pgn_path = tmp_path / "hyper.pgn"
+    run_dry_game(max_plies=4, clock_ms=250, increment_ms=0, quality_mode="hyper", pgn_path=pgn_path)
+    text = pgn_path.read_text(encoding="utf-8")
+    assert "hyper_fast_path" in text

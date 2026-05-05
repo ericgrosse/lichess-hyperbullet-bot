@@ -20,6 +20,14 @@ class ChallengeDecision:
     reason: str
 
 
+@dataclass(frozen=True)
+class ChallengePolicy:
+    allow_human_challenges: bool = True
+    allow_ultrabullet: bool = True
+    min_clock_limit_seconds: int = 30
+    max_clock_limit_seconds: int = 30
+
+
 class LichessClient:
     """Minimal Lichess BOT API client.
 
@@ -68,6 +76,36 @@ class LichessClient:
 
     def decline_challenge(self, challenge_id: str, reason: str = "standard") -> None:
         self._request("POST", f"/api/challenge/{challenge_id}/decline", data={"reason": reason})
+
+    def try_accept_challenge(self, challenge_id: str, challenge: dict[str, Any] | None = None) -> bool:
+        try:
+            self.accept_challenge(challenge_id)
+            return True
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in {400, 404, 410}:
+                LOG.warning("Could not accept challenge %s; expected lifecycle/API rejection. %s", challenge_id, http_error_context(exc, challenge))
+            else:
+                LOG.warning("Unexpected HTTP error accepting challenge %s: %s %s", challenge_id, exc, http_error_context(exc, challenge))
+            return False
+        except Exception as exc:
+            LOG.warning("Unexpected error accepting challenge %s: %s", challenge_id, exc)
+            return False
+
+    def try_decline_challenge(self, challenge_id: str, reason: str = "standard", challenge: dict[str, Any] | None = None) -> bool:
+        try:
+            self.decline_challenge(challenge_id, reason)
+            return True
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in {400, 404, 410}:
+                LOG.warning("Could not decline challenge %s; expected lifecycle/API rejection. %s", challenge_id, http_error_context(exc, challenge))
+            else:
+                LOG.warning("Unexpected HTTP error declining challenge %s: %s %s", challenge_id, exc, http_error_context(exc, challenge))
+            return False
+        except Exception as exc:
+            LOG.warning("Unexpected error declining challenge %s: %s", challenge_id, exc)
+            return False
 
     def make_move(self, game_id: str, uci: str) -> None:
         self._request("POST", f"/api/bot/game/{game_id}/move/{uci}")
@@ -145,17 +183,57 @@ class LichessClient:
             time.sleep(0.05 - elapsed)
 
 
-def decide_challenge(challenge: dict[str, Any], allow_human_challenges: bool = True) -> ChallengeDecision:
-    variant = challenge.get("variant", {}).get("key")
-    speed = challenge.get("speed")
-    perf = challenge.get("perf", {}).get("key")
+def challenge_details(challenge: dict[str, Any] | None) -> str:
+    if not challenge:
+        return "challenge=<not provided>"
     clock = challenge.get("timeControl", {})
     challenger = challenge.get("challenger", {})
-    if not allow_human_challenges and challenger.get("title") != "BOT":
+    return (
+        f"challenge_id={challenge.get('id')} challenger={challenger.get('name') or challenger.get('username') or challenger.get('id')} "
+        f"rated={challenge.get('rated')} variant={challenge.get('variant', {}).get('key')} "
+        f"speed={challenge.get('speed')} perf={challenge.get('perf', {}).get('key')} "
+        f"tc={clock.get('limit')}+{clock.get('increment')}"
+    )
+
+
+def http_error_context(exc: requests.HTTPError, challenge: dict[str, Any] | None = None) -> str:
+    response = exc.response
+    if response is None:
+        return f"{challenge_details(challenge)} response=<none>"
+    useful_headers = {
+        key: value
+        for key, value in response.headers.items()
+        if key.lower() in {"content-type", "retry-after", "x-ratelimit-remaining", "x-ratelimit-limit"}
+    }
+    return (
+        f"{challenge_details(challenge)} status={response.status_code} body={response.text!r} "
+        f"headers={dict(useful_headers)}"
+    )
+
+
+def normalize_key(value: Any) -> str:
+    return str(value or "").replace("_", "").replace("-", "").lower()
+
+
+def decide_challenge(
+    challenge: dict[str, Any],
+    allow_human_challenges: bool = True,
+    policy: ChallengePolicy | None = None,
+) -> ChallengeDecision:
+    if policy is None:
+        policy = ChallengePolicy(allow_human_challenges=allow_human_challenges)
+    variant = normalize_key(challenge.get("variant", {}).get("key"))
+    speed = normalize_key(challenge.get("speed"))
+    perf = normalize_key(challenge.get("perf", {}).get("key"))
+    clock = challenge.get("timeControl", {})
+    challenger = challenge.get("challenger", {})
+    if not policy.allow_human_challenges and challenger.get("title") != "BOT":
         return ChallengeDecision(False, "botOnly")
     if variant != "standard":
         return ChallengeDecision(False, "non-standard")
-    if speed not in {"bullet", "ultraBullet"} and perf not in {"bullet", "ultraBullet"}:
+    if "ultrabullet" in {speed, perf}:
+        return ChallengeDecision(False, "ultraBullet")
+    if speed != "bullet" and perf != "bullet":
         return ChallengeDecision(False, "time")
     if clock.get("type") != "clock":
         return ChallengeDecision(False, "correspondence")
@@ -165,6 +243,8 @@ def decide_challenge(challenge: dict[str, Any], allow_human_challenges: bool = T
     increment = float(raw_increment) if raw_increment is not None else 999
     if increment != 0:
         return ChallengeDecision(False, "increment")
-    if limit > 30:
+    if limit < policy.min_clock_limit_seconds:
+        return ChallengeDecision(False, "time")
+    if limit > policy.max_clock_limit_seconds:
         return ChallengeDecision(False, "time")
     return ChallengeDecision(True, "ok")

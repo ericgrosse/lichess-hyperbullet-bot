@@ -46,6 +46,9 @@ class Settings:
     enable_prepared_replies: bool
     prepare_reply_budget_ms: int
     allow_human_challenges: bool
+    allow_ultrabullet: bool
+    min_clock_limit_seconds: int
+    max_clock_limit_seconds: int
 
     @property
     def dashboard_url(self) -> str:
@@ -73,7 +76,10 @@ def load_settings(env_file: Optional[str] = None) -> Settings:
         default_rated=_bool("DEFAULT_RATED", False),
         enable_prepared_replies=_bool("ENABLE_PREPARED_REPLIES", False),
         prepare_reply_budget_ms=_int("PREPARE_REPLY_BUDGET_MS", 10),
-        allow_human_challenges=_bool("ALLOW_HUMAN_CHALLENGES", False),
+        allow_human_challenges=_bool("ALLOW_HUMAN_CHALLENGES", True),
+        allow_ultrabullet=_bool("ALLOW_ULTRABULLET", True),
+        min_clock_limit_seconds=_int("MIN_CLOCK_LIMIT_SECONDS", 30),
+        max_clock_limit_seconds=_int("MAX_CLOCK_LIMIT_SECONDS", 30),
     )
 
 

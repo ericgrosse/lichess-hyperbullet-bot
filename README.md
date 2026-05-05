@@ -1,6 +1,6 @@
 # Lichess Ultrabullet BOT Project
 
-Production-oriented Python bot runner for Lichess **BOT accounts only**, tuned for `1/2+0` ultrabullet-style play and `1/4+0` hyperbullet-style testing where Lichess accepts those clocks. It uses `python-chess`, Stockfish through UCI, strict time budgets, a premove-like prepared-reply cache, and a fast tactical blunder filter.
+Production-oriented Python bot runner for Lichess **BOT accounts only**, with local `1/2+0` ultrabullet-style and `1/4+0` hyperbullet-style dry-run testing. It uses `python-chess`, Stockfish through UCI, strict time budgets, a premove-like prepared-reply cache, and a fast tactical blunder filter.
 
 Never run this with a normal Lichess user account. The live runner verifies the account has the `BOT` title before playing.
 
@@ -9,7 +9,7 @@ Never run this with a normal Lichess user account. The live runner verifies the 
 - The runner calls `/api/account` before live play and refuses to run unless the token belongs to a Lichess account with title `BOT`.
 - Incoming challenges can be BOT-only or allow humans depending on `ALLOW_HUMAN_CHALLENGES`.
 - Set `ALLOW_HUMAN_CHALLENGES=true` to accept standard `<=30s +0` human challenges for testing; set it to `false` for BOT-only challenges.
-- Accepted games must be standard chess, bullet/ultrabullet, clock-based, `<= 30` seconds, and increment `0`.
+- Accepted live games must be standard chess, bullet, clock-based, `30+0`, and increment `0`.
 - The project does not implement human-play assistance, browser automation, lobby seeks, pools, tournaments, or simuls.
 - Challenge loops use direct bot-vs-bot challenges only, with a configurable cooldown to avoid spam.
 - Lichess API rate-limit guidance is respected: request starts are serialized across threads and client instances, with a full-minute pause after `429`.
@@ -107,6 +107,8 @@ Local hyperbullet dry-run at `1/4+0`:
 ```bash
 python run_bot.py --dry-run --clock-ms 250 --increment-ms 0 --plies 200
 ```
+
+Local dry-run supports `1/4+0` and `1/2+0` testing. Live Lichess BOT play appears to support `30+0`, but Lichess rejects `15+0` ultrabullet challenges for BOT accounts with `"Game incompatible with a BOT account"`.
 
 Run tests:
 

@@ -77,3 +77,41 @@ def test_fallback_only_when_engine_returns_no_candidates():
     assert result.move in board.legal_moves
     assert engine.calls
     assert result.source == "forcing-fallback"
+
+
+def test_hyper_mode_500ms_uses_5ms_single_pv():
+    board = chess.Board()
+    engine = MockEngine()
+    selector = MoveSelector(engine, enable_prepared_replies=False)
+    result = selector.choose_move(board, SelectionContext(remaining_ms=500, base_seconds=0.5, quality_mode="hyper"))
+    assert result.move in board.legal_moves
+    assert engine.calls[0] == (5, 1)
+
+
+def test_hyper_mode_250ms_uses_3ms_single_pv():
+    board = chess.Board()
+    engine = MockEngine()
+    selector = MoveSelector(engine, enable_prepared_replies=False)
+    result = selector.choose_move(board, SelectionContext(remaining_ms=250, base_seconds=0.25, quality_mode="hyper"))
+    assert result.move in board.legal_moves
+    assert engine.calls[0] == (3, 1)
+
+
+def test_hyper_mode_50ms_skips_stockfish():
+    board = chess.Board()
+    engine = MockEngine()
+    selector = MoveSelector(engine, enable_prepared_replies=False)
+    result = selector.choose_move(board, SelectionContext(remaining_ms=50, base_seconds=0.25, quality_mode="hyper"))
+    assert result.move in board.legal_moves
+    assert not engine.calls
+    assert result.hyper_fast_path_used
+
+
+def test_hyper_mode_caps_candidates_seen():
+    board = chess.Board()
+    candidates = [CandidateMove(move, 0, [], "stockfish") for move in list(board.legal_moves)[:8]]
+    engine = MockEngine(candidates)
+    selector = MoveSelector(engine, enable_prepared_replies=False)
+    result = selector.choose_move(board, SelectionContext(remaining_ms=500, base_seconds=0.5, quality_mode="hyper"))
+    assert result.move in board.legal_moves
+    assert result.candidates_seen <= 4
