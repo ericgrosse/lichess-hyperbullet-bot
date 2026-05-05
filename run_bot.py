@@ -471,7 +471,12 @@ def main() -> None:
     parser.add_argument("--bot1-name", default="OfflineBot1", help="Dry-run PGN/display name for White.")
     parser.add_argument("--bot2-name", default="OfflineBot2", help="Dry-run PGN/display name for Black.")
     parser.add_argument("--random-seed", type=int, default=None, help="Optional dry-run random seed.")
-    parser.add_argument("--quality-mode", choices=["fast", "sample", "hyper"], default="fast", help="Dry-run quality mode.")
+    parser.add_argument(
+        "--quality-mode",
+        default="hyper",
+        choices=["fast", "sample", "hyper"],
+        help="Move selection quality mode (default: hyper)"
+    )
     args = parser.parse_args()
     if args.dry_run:
         run_dry_game(
